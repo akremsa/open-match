@@ -210,8 +210,7 @@ message Backfill {
  // Id represents an auto-generated Id issued by Open Match.
  string id = 1;
 
- // Search fields are the fields which Open Match is aware of, and can be used
- // when specifying filters.
+ // Search fields are the fields which Open Match is aware of, and can be used when specifying filters.
  SearchFields search_fields = 2;
 
  // Customized information not inspected by Open Match, to be used by the match
@@ -219,12 +218,11 @@ message Backfill {
  // Optional, depending on the requirements of the connected systems.
  map<string, google.protobuf.Any> extensions = 3;
 
- // Create time is the time the Backfill was created. It is populated by Open
- // Match at the time of Ticket creation.
+ // Create time is the time the Backfill was created. It is populated by Open Match at the time of Ticket creation.
  google.protobuf.Timestamp create_time = 4;
 
   // Generation gets incremented on GameServers update operations
   // Prevents the MMF from overriding a newer version from the game server.
-  // It is not to be updated by the MMF.
+  // It is not supposed to be updated by the MMF.
   int64 generation = 5;
 }
