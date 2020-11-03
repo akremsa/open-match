@@ -2,6 +2,7 @@ package statestore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -341,4 +342,120 @@ func TestUpdateBackfill(t *testing.T) {
 	require.Nil(t, res)
 	require.Equal(t, codes.Unavailable.String(), status.Convert(err).Code().String())
 	require.Contains(t, status.Convert(err).Message(), "UpdateBackfill, id: mockBackfillID, failed to connect to redis:")
+}
+
+func TestMapTicketsToBackfill(t *testing.T) {
+	cfg, closer := createRedis(t, false, "")
+	defer closer()
+	service := New(cfg)
+	require.NotNil(t, service)
+	defer service.Close()
+	ctx := utilTesting.NewContext(t)
+
+	backfillID := "bf-id"
+	generation := 5
+	ticketIDs := []string{"id1", "id2"}
+
+	c, err := redis.Dial("tcp", fmt.Sprintf("%s:%s", cfg.GetString("redis.hostname"), cfg.GetString("redis.port")))
+	require.NoError(t, err)
+
+	err = service.MapTicketsToBackfill(ctx, backfillID, generation, ticketIDs)
+	require.NoError(t, err)
+
+	res, err := redis.Bytes(c.Do("GET", "bf-id-5"))
+	require.NoError(t, err)
+
+	val := []string{}
+	err = json.Unmarshal(res, &val)
+	require.Equal(t, ticketIDs, val)
+
+	// pass an expired context, err expected
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	service = New(cfg)
+	err = service.MapTicketsToBackfill(ctx, backfillID, generation, ticketIDs)
+	require.Error(t, err)
+	require.Equal(t, codes.Unavailable.String(), status.Convert(err).Code().String())
+	require.Contains(t, status.Convert(err).Message(), "MapTicketsToBackfill, key: bf-id-5, failed to connect to redis:")
+}
+
+func TestGetTicketIDsByBackfill(t *testing.T) {
+	cfg, closer := createRedis(t, false, "")
+	defer closer()
+	service := New(cfg)
+	require.NotNil(t, service)
+	defer service.Close()
+	ctx := utilTesting.NewContext(t)
+
+	backfillID := "bf-id"
+	generation := 5
+	ticketIDs := []string{"id1", "id2"}
+	val, err := json.Marshal(ticketIDs)
+	require.NoError(t, err)
+
+	c, err := redis.Dial("tcp", fmt.Sprintf("%s:%s", cfg.GetString("redis.hostname"), cfg.GetString("redis.port")))
+	require.NoError(t, err)
+	_, err = c.Do("SET", fmt.Sprintf("%s-%d", backfillID, generation), val)
+	require.NoError(t, err)
+
+	_, err = c.Do("SET", "wrong-type-key-123", "wrong-type-value")
+	require.NoError(t, err)
+
+	var testCases = []struct {
+		description     string
+		backfillID      string
+		generation      int
+		expectedResult  []string
+		expectedCode    codes.Code
+		expectedMessage string
+	}{
+		{
+			description:     "OK",
+			backfillID:      "bf-id",
+			generation:      5,
+			expectedResult:  ticketIDs,
+			expectedCode:    codes.OK,
+			expectedMessage: "",
+		},
+		{
+			description:     "Wrong backfillID, err not found",
+			backfillID:      "bf-q",
+			generation:      5,
+			expectedResult:  ticketIDs,
+			expectedCode:    codes.NotFound,
+			expectedMessage: "backfill mapping not found, key: bf-q-5",
+		},
+		{
+			description:     "Wrong generation, err not found",
+			backfillID:      "bf-id",
+			generation:      123,
+			expectedResult:  ticketIDs,
+			expectedCode:    codes.NotFound,
+			expectedMessage: "backfill mapping not found, key: bf-id-123",
+		},
+		{
+			description:     "Retrieve wrong value, err not found",
+			backfillID:      "wrong-type-key",
+			generation:      123,
+			expectedResult:  ticketIDs,
+			expectedCode:    codes.Internal,
+			expectedMessage: "failed to unmarshal the backfill mapping, key: wrong-type-key-123",
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.description, func(t *testing.T) {
+			res, errActual := service.GetTicketIDsByBackfill(ctx, tc.backfillID, tc.generation)
+			if tc.expectedCode == codes.OK {
+				require.NoError(t, errActual)
+				require.Equal(t, tc.expectedResult, res)
+
+			} else {
+				require.Error(t, errActual)
+				require.Equal(t, tc.expectedCode.String(), status.Convert(errActual).Code().String())
+				require.Contains(t, status.Convert(errActual).Message(), tc.expectedMessage)
+			}
+		})
+	}
 }

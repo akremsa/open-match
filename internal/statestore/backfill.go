@@ -2,6 +2,8 @@ package statestore
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/gomodule/redigo/redis"
@@ -10,6 +12,8 @@ import (
 	"google.golang.org/grpc/status"
 	"open-match.dev/open-match/pkg/pb"
 )
+
+const backfillTicketMapKey = "%s-%d"
 
 // CreateBackfill creates a new Backfill in the state storage. If the id already exists, it will be overwritten.
 func (rb *redisBackend) CreateBackfill(ctx context.Context, backfill *pb.Backfill) error {
@@ -149,4 +153,56 @@ func getBackfill(redisConn redis.Conn, id string) (*pb.Backfill, error) {
 	}
 
 	return backfill, nil
+}
+
+// MapTicketsToBackfill creates a mapping between backfill and asossiated ticket IDs
+func (rb *redisBackend) MapTicketsToBackfill(ctx context.Context, backfillID string, generation int, tickets []string) error {
+	key := fmt.Sprintf(backfillTicketMapKey, backfillID, generation)
+	redisConn, err := rb.redisPool.GetContext(ctx)
+	if err != nil {
+		return status.Errorf(codes.Unavailable, "MapTicketsToBackfill, key: %s, failed to connect to redis: %v", key, err)
+	}
+	defer handleConnectionClose(&redisConn)
+
+	val, err := json.Marshal(tickets)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to marshal backfill-ticketIDs mapping, key %s", key)
+	}
+
+	_, err = redisConn.Do("SET", key, val)
+	if err != nil {
+		err = errors.Wrapf(err, "failed to set the value for backfill mapping, key: %s", key)
+		return status.Errorf(codes.Internal, "%v", err)
+	}
+
+	return nil
+}
+
+// GetTicketIDsByBackfill gets a list of ticket IDs asossiated with a provided backfill
+func (rb *redisBackend) GetTicketIDsByBackfill(ctx context.Context, backfillID string, generation int) ([]string, error) {
+	key := fmt.Sprintf(backfillTicketMapKey, backfillID, generation)
+	redisConn, err := rb.redisPool.GetContext(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "MapTicketsToBackfill, key: %s, failed to connect to redis: %v", key, err)
+	}
+	defer handleConnectionClose(&redisConn)
+
+	res, err := redis.Bytes(redisConn.Do("GET", key))
+	if err != nil {
+		if err == redis.ErrNil {
+			return nil, status.Errorf(codes.NotFound, "backfill mapping not found, key: %s", key)
+		}
+
+		err = errors.Wrapf(err, "failed to get the backfill mapping from state storage, key: %s", key)
+		return nil, status.Errorf(codes.Internal, "%v", err)
+	}
+
+	mapping := []string{}
+	err = json.Unmarshal(res, &mapping)
+	if err != nil {
+		err = errors.Wrapf(err, "failed to unmarshal the backfill mapping, key: %s", key)
+		return nil, status.Errorf(codes.Internal, "%v", err)
+	}
+
+	return mapping, nil
 }

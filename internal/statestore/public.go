@@ -81,6 +81,12 @@ type Service interface {
 
 	// UpdateBackfill updates an existing Backfill with new data.
 	UpdateBackfill(ctx context.Context, backfill *pb.Backfill, updateFunc func(current *pb.Backfill, new *pb.Backfill) (*pb.Backfill, error)) (*pb.Backfill, error)
+
+	// MapTicketsToBackfill creates a mapping between backfill and asossiated ticket IDs
+	MapTicketsToBackfill(ctx context.Context, backfillID string, generation int, tickets []string) error
+
+	// GetTicketIDsByBackfill gets a list of ticket IDs asossiated with a provided backfill
+	GetTicketIDsByBackfill(ctx context.Context, backfillID string, generation int) ([]string, error)
 }
 
 // New creates a Service based on the configuration.

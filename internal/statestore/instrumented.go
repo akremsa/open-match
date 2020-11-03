@@ -134,3 +134,17 @@ func (is *instrumentedService) UpdateBackfill(ctx context.Context, backfill *pb.
 	defer span.End()
 	return is.s.UpdateBackfill(ctx, backfill, updateFunc)
 }
+
+// MapTicketsToBackfill creates a mapping between backfill and asossiated ticket IDs
+func (is *instrumentedService) MapTicketsToBackfill(ctx context.Context, backfillID string, generation int, tickets []string) error {
+	ctx, span := trace.StartSpan(ctx, "statestore/instrumented.MapTicketsToBackfill")
+	defer span.End()
+	return is.s.MapTicketsToBackfill(ctx, backfillID, generation, tickets)
+}
+
+// GetTicketIDsByBackfill gets a list of ticket IDs asossiated with a provided backfill
+func (is *instrumentedService) GetTicketIDsByBackfill(ctx context.Context, backfillID string, generation int) ([]string, error) {
+	ctx, span := trace.StartSpan(ctx, "statestore/instrumented.GetTicketIDsByBackfill")
+	defer span.End()
+	return is.s.GetTicketIDsByBackfill(ctx, backfillID, generation)
+}
