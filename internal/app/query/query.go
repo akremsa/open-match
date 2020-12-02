@@ -78,9 +78,8 @@ var (
 // BindService creates the query service and binds it to the serving harness.
 func BindService(p *appmain.Params, b *appmain.Bindings) error {
 	service := &queryService{
-		cfg: p.Config(),
-		tc:  newTicketCache(b, p.Config()),
-		bfc: newBackfillCache(b, p.Config()),
+		cfg:   p.Config(),
+		cashe: newCache(b, p.Config()),
 	}
 
 	b.AddHandleFunc(func(s *grpc.Server) {
